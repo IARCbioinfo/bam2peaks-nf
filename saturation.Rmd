@@ -1,0 +1,224 @@
+---
+title: "Saturation estimation"
+output: html_document
+params:
+  sampleSheet : "input.txt"
+---
+
+```{r, echo = FALSE, message = FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning=FALSE)
+#library( data.table )
+library( tidyverse )
+#library( DT )
+sampleSheet <- params$sampleSheet
+#"/data/EPIDRIVER/work/keitas/NSEQ_20221216_Chip-seq_mariana/"
+Sys.setenv(TZ = "UTC")
+```
+
+```{r}
+## Reads sampleSheet
+fraction<-list.files("./Saturation_peaks/") %>%
+  as.data.frame() %>%
+  #mutate(frac = as.numeric(str_extract(., "0\\.\\d+"))) %>%
+  mutate(frac = as.numeric(gsub(".*_(0\\.\\d+)_.*", "\\1",.))) %>%
+  mutate(sample=gsub("_0\\.\\d+_.*","",.)) %>%
+  dplyr::select(sample,frac)
+
+sampleSheet<-read_tsv(sampleSheet, col_types = "cccclc" )
+sampleSheet<-right_join(sampleSheet,fraction,by="sample")
+sampleSheet<-sampleSheet %>% unite(ind,sample,frac,sep="_", remove = FALSE)
+
+# fraction<-list.files(paste0(folder, "/Saturation_peaks/"))
+#            
+# fraction <- data.table(
+#   sample = gsub("(.*)_(.*)_(.*)_(.*)", "\\1_\\2", fraction),
+#   fraction = gsub("(.*)_(.*)_(.*)_(.*)", "\\3", fraction),
+#   stringsAsFactors = FALSE
+# )
+# 
+# # Read sampleSheet as a data.table
+# sampleSheet <- fread(sampleSheet, colClasses = "character", header = TRUE, sep = "\t")
+# 
+# # Merge fraction with sampleSheet using data.table syntax
+# dt <- merge(sampleSheet, fraction, by = "sample", all.x = TRUE, nomatch = 0)
+# dt[, ind := paste(sample, fraction, sep = "_")]
+```
+
+```{r}
+## Reads counts
+Read_count <- map(list.files("./Counts/", full.names = TRUE),
+      ~read_csv(.x, col_names = FALSE, col_types = "i"))
+
+Read_count <- setNames(Read_count, gsub(".count.*","",list.files("./Counts/"))) %>% unlist()
+Read_count <- stack(Read_count) %>% mutate( ind=gsub(".X1","",ind)) %>% dplyr::rename(Read_count=values)
+sampleSheet <- merge(sampleSheet, Read_count, by = "ind", all.x = TRUE)
+
+# Read_count <- lapply(list.files(paste0(folder, "/Counts/"), full.names = TRUE), fread, colClasses = "integer", header = FALSE)
+# names(Read_count)<- gsub(".count.*", "", list.files(paste0(folder, "/Counts/")))
+# Read_count <- rbindlist(Read_count, idcol = "ind")
+# colnames(Read_count)[2]<-"Read_count"
+# dt <- merge(dt, Read_count, by = "ind", all.x = TRUE)
+```
+
+```{r}
+## Peaks counts
+Peak_count <- map(
+  list.files("./Saturation_peaks/", full.names = TRUE),
+  ~ read_tsv(.x, c( "chr", "start", "end", "name", "score", "strand", "signalvalue", "pval", "qval", "peak" )) %>% filter(qval > -log10(0.05)) %>% summarise(number_of_rows = n()))
+
+Peak_count <- setNames(Peak_count, gsub(".count.*","",list.files("./Saturation_peaks/"))) %>% unlist()
+Peak_count <- stack(Peak_count) %>% mutate( ind=gsub("_peaks.*","",ind)) %>% dplyr::rename(Peak_count=values)
+sampleSheet <- merge(sampleSheet, Peak_count , by = "ind", all.x = TRUE)
+
+# col_names<-c( "chr","start","end","name","score","strand","signalvalue","pval","qval","peak")
+# 
+# Peak_count <- lapply(
+#   list.files(paste0(folder, "/Saturation_peaks/"), full.names = TRUE),
+#   function(file) {
+#     dt <- fread(file, col.names = col_names  )
+#     dt[qval > -log10(0.05), .(Peak_count = .N), by = NULL]
+#   }
+# )
+# names(Peak_count) <- gsub(".count.*", "", list.files(paste0(folder, "/Saturation_peaks/")))
+# Peak_count <- rbindlist(Peak_count, idcol = "ind")
+# Peak_count[, ind := gsub("_peaks.*", "", ind)]
+# dt <- merge(dt, Peak_count, by = "ind", all.x = TRUE)
+```
+
+```{r}
+write_tsv( sampleSheet, path = "tab_values.tsv" )
+```
+
+```{r}
+ggplot( sampleSheet, aes( x = Read_count, y = Peak_count ) ) + 
+  geom_line( aes( color = condition ) ) +
+  facet_grid( . ~ group ) +
+  theme_minimal()
+```
+
+
+
+
+## Estimate slope and saturation target
+
+Function from [peaksat package](https://github.com/FrietzeLabUVM/peaksat) converted to tidyverse !
+
+```{r, echo=FALSE}
+# estimate_depth.linear <- function(cnt_dt, target_peaks = NULL, min_read_count = 5e6, max_read_count = 100e6){
+#   if(is.null(target_peaks)){
+#     target_peaks = .9*max(cnt_dt$Peak_count)
+#   }
+#   cnt_dt[, cutoff := target_peaks]
+# 
+#    cnt_dt[, under_max_reads := Read_count <= max_read_count]
+#   cnt_dt[, is_max := Read_count == max(Read_count[under_max_reads]), .(sample)]
+#   cnt_dt[, over_cutoff := Peak_count > cutoff]
+# 
+#   min_dt = cnt_dt
+#   min_dt[, over_5m := Read_count >= min_read_count]
+#   min_dt = min_dt[over_5m == TRUE]
+#   min_dt[, is_min := Read_count == min(Read_count), .(sample)]
+#   min_dt = min_dt[is_min == TRUE]
+#   min_dt[, .(sample, Read_count, Peak_count)]
+# 
+#   max_dt = cnt_dt[is_max == TRUE | over_cutoff == TRUE]
+#   max_dt[, selected := Read_count == min(Read_count), .(sample) ]
+#   max_dt = max_dt[selected == TRUE]
+#   max_dt$saturation_peak_count = target_peaks
+#   max_dt = merge(max_dt, min_dt[, .(zero_read_count = Read_count, zero_peak_count = Peak_count, sample)], by = c("sample"), all.x = TRUE)
+#   max_dt[is.na(zero_read_count), zero_read_count := 0]
+#   max_dt[is.na(zero_peak_count), zero_peak_count := 0]
+#   max_dt[, slope := (Peak_count - zero_peak_count) / (Read_count - zero_read_count)]
+#   max_dt[, yint := Peak_count - (slope * Read_count) ]
+#   max_dt[, saturation_read_count := (saturation_peak_count - yint) / slope]
+#   # max_dt[, max_read_count := max_read_count]
+#   # max_dt[, max_peak_count := (max_read_count - yint) / slope]
+#   est_dt = max_dt[, .(sample, saturation_peak_count, saturation_read_count, current_read_count = Read_count,
+#                       current_peak_count = Peak_count, yint, slope)][order(saturation_read_count)]
+# 
+#   p_estimate = ggplot(cnt_dt, aes(x = Read_count, y = Peak_count)) +
+#     geom_point(data = cnt_dt, alpha = 1) +
+#     geom_segment(data = est_dt, lty = 1,
+#                  aes(x = 0,
+#                      y = yint,
+#                      xend = saturation_read_count,
+#                      yend = saturation_peak_count)) +
+#     geom_hline(yintercept = target_peaks, color = 'red') +
+#     geom_point(data = est_dt, aes(y = saturation_peak_count, x = saturation_read_count), color = "red") +
+#     geom_text(data = est_dt, aes(y = saturation_peak_count*1.07, x = saturation_read_count, label = paste0(round(saturation_read_count/1e6, 2), " (M)")), color = "red") +
+#     facet_wrap(~sample, scales = "free_x") +
+#     labs(x = "read count (M)", y = "peak count (k)") +
+#     scale_x_continuous(labels = function(x)x/1e6) +
+#     scale_y_continuous(labels = function(y)y/1e3)
+# 
+# 
+#   return(list(estimates = est_dt, plots = p_estimate))
+# }
+```
+
+
+```{r, echo=FALSE}
+estimate_depth_linear <- function(cnt_dt, target_peaks = NULL, min_read_count = 5e6, max_read_count = 100e6) {
+  
+  if (is.null(target_peaks)) {
+    target_peaks = 0.9 * max(cnt_dt$Peak_count)
+  }
+  
+  cnt_dt <- cnt_dt %>%
+    mutate(cutoff = target_peaks,
+           under_max_reads = Read_count <= max_read_count,
+           is_max = Read_count == max(Read_count[under_max_reads]),
+           over_cutoff = Peak_count > cutoff)
+  
+  min_dt <- cnt_dt %>%
+    filter(Read_count >= min_read_count) %>%
+    group_by(sample) %>%
+    filter(Read_count == min(Read_count)) %>%
+    select(sample, Read_count, Peak_count)
+  
+  max_dt <- cnt_dt %>%
+    filter(is_max | over_cutoff) %>%
+    group_by(sample) %>%
+    filter(Read_count == min(Read_count)) %>%
+    mutate(saturation_peak_count = target_peaks) %>%
+    left_join(min_dt %>% select(sample, zero_read_count = Read_count, zero_peak_count = Peak_count), by = "sample") %>%
+    replace_na(list(zero_read_count = 0, zero_peak_count = 0)) %>%
+    mutate(slope = (Peak_count - zero_peak_count) / (Read_count - zero_read_count),
+           yint = Peak_count - (slope * Read_count),
+           saturation_read_count = (saturation_peak_count - yint) / slope) %>%
+    select(sample, saturation_peak_count, saturation_read_count, current_read_count = Read_count,
+           current_peak_count = Peak_count, yint, slope) %>%
+    arrange(saturation_read_count)
+  
+  p_estimate <- ggplot(cnt_dt, aes(x = Read_count, y = Peak_count)) +
+    geom_point(alpha = 1) +
+    geom_segment(data = max_dt, lty = 1,
+                 aes(x = 0, y = yint, xend = saturation_read_count, yend = saturation_peak_count)) +
+    geom_hline(yintercept = target_peaks, color = 'red') +
+    geom_point(data = max_dt, aes(y = saturation_peak_count, x = saturation_read_count), color = "red") +
+    geom_text(data = max_dt, aes(y = saturation_peak_count * 1.07, x = saturation_read_count,
+                                 label = paste0(round(saturation_read_count / 1e6, 2), " (M)")), color = "red") +
+    facet_wrap(~sample, scales = "free_x") +
+    labs(x = "read count (M)", y = "peak count (k)") +
+    scale_x_continuous(labels = function(x) x / 1e6) +
+    scale_y_continuous(labels = function(y) y / 1e3)
+  
+  return(list(estimates = max_dt, plots = p_estimate))
+}
+```
+
+
+```{r}
+l_est <- estimate_depth_linear( sampleSheet )
+```
+
+```{r}
+l_est$estimates
+```
+
+```{r}
+l_est$plots +
+  facet_wrap(~ sample, ncol = 2)
+```
+
+
