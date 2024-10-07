@@ -42,6 +42,7 @@ eg:
 | Name | Example value | Description |
 |-----------|--------------|-------------| 
 |--ref | hg38 | Reference fasta file hg19, hg38 or mm10' |
+|--gencode | gencode.bed | gencode file |
 
 * #### Optional
 
@@ -70,7 +71,7 @@ Flags are special parameters without value.
 To run the pipeline for ATAC, one can type:
   
 ```bash
-nextflow run iarcbioinfo/bam2peaks-nf -r latest -profile singularity --input_file input.tsv --ref hg38 --output_folder output --ignoreDuplicates
+nextflow run iarcbioinfo/bam2peaks-nf -r latest -profile singularity --input_file input.tsv --ref hg38 --gencode gencode.bed --output_folder output --ignoreDuplicates
 ```
 
 To run the pipeline without singularity just remove "-profile singularity". Alternatively, one can run the pipeline using a docker container (-profile docker) the conda receipe containing all required dependencies (-profile conda).
@@ -79,7 +80,7 @@ To run the pipeline without singularity just remove "-profile singularity". Alte
 To use the pipeline for Chip-seq, add the --chip flag :
 
 ```bash
-nextflow run iarcbioinfo/bam2peaks-nf -r latest -profile singularity --input_file input.tsv --ref hg38 --output_folder output --mode chip --broad --extsize 320
+nextflow run iarcbioinfo/bam2peaks-nf -r latest -profile singularity --input_file input.tsv --ref hg38 --gencode gencode.bed --output_folder output --mode chip --broad --extsize 320
 ```
 
 ## Output 
