@@ -1,4 +1,4 @@
-# bamm2peaks -nf
+# bam2peaks -nf
 
 ## Nextflow pipeline for peaks calling with MACS
 
@@ -26,7 +26,14 @@ Nextflow pipeline designed for peak calling using MACS and IDR, coupled with QC 
 ## Input 
  | Type      | Description   |
  |-----------|---------------|
- | --input_file    | input tabulation-separated values file with columns sample (sample name), tag (short name for figures), bam (bam file path) and group (group) |
+ | --input_file    | input tabulation-separated values file with columns sample (sample name), tag (short name for figures), bam (bam file path) and group (group), for chip mode, you must also provide input : 0 for normal samples and 1 for input sample|
+
+eg:
+| sample | tag | bam | group | input |
+|--------|-----|-----|-------|-------|
+| SAM015 | S15 | S15.bam | 1 | 0     |
+| SAM016 | S16 | S16.bam | 1 | 0     |
+| SAM010 | S10 | S10.bam | 1 | 1     |
 
 ## Parameters
 
@@ -72,7 +79,7 @@ To run the pipeline without singularity just remove "-profile singularity". Alte
 To use the pipeline for Chip-seq, add the --chip flag :
 
 ```bash
-nextflow run iarcbioinfo/bam2peaks-nf -r latest -profile singularity --input_file input.tsv --ref hg38 --output_folder output --chip --broad --extsize 320
+nextflow run iarcbioinfo/bam2peaks-nf -r latest -profile singularity --input_file input.tsv --ref hg38 --output_folder output --mode chip --broad --extsize 320
 ```
 
 ## Output 
